@@ -1,0 +1,61 @@
+firewall-cmd --zone=public --add-port=5432/tcp --permanent
+
+systemctl reload firewalld.service
+mkdir /data/pgsql/pgdata
+
+# 安装
+https://ftp.postgresql.org/pub/repos/yum/16/redhat/rhel-8.1-x86_64/
+
+
+rpm -ivh postgresql16-libs-16.15-1PGDG.rhel9.6.x86_64.rpm
+rpm -ivh postgresql16-16.15-1PGDG.rhel9.6.x86_64.rpm
+rpm -ivh postgresql16-server-16.15-1PGDG.rhel9.6.x86_64.rpm
+
+# 设置开机自启
+systemctl enable postgresql-16
+
+# 初始化数据
+/usr/pgsql-16/bin/postgresql-16-setup initdb 
+# 迁移数据
+cp -a /var/lib/pgsql/16/data/* /data/pgsql/pgdata
+# 用户授权
+chown -R postgres:postgres /data/pgsql/pgdata
+# 修改权限
+chmod 0700 /data/pgsql/pgdata
+
+# 修改服务启动项
+vi /usr/lib/systemd/system/postgresql-16.service
+# 修改内容
+Environment=PGDATA=/data/pgsql/pgdata
+# 重载
+systemctl daemon-reload
+
+配置
+# 编辑
+vi /(数据盘目录)/apps/postgresql/postgresql.conf
+# 修改内容
+listen_addresses='*' # 监听地址
+port=5432 # 端口
+max_connections = 3000 # 最大连接数
+data_directory = '/data/pgsql/pgdata' # 数据目录
+
+# 开启外部访问
+vi /data/pgsql/pgdata/pg_hba.conf
+# 修改内容
+host    all             all              0.0.0.0/0       scram-sha-256 
+host    replication     all              0.0.0.0/0       scram-sha-256
+
+# 启动
+systemctl restart postgresql-16
+# 切换用户
+su - postgres
+# 登录postgres用户
+psql -U postgres
+# 修改postgres密码
+postgres=# alter user postgres with password 'Super@99';
+# 创建主从同步用户
+postgres=# create role repl login replication encrypted password '0s%o!GHaFMx+';
+# 退出数据库
+postgres=# \q 
+# 退出用户
+exit

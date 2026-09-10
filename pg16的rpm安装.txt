@@ -41,7 +41,8 @@ cp -a /var/lib/pgsql/16/data/* /data/pgsql/pgdata
 # 用户授权
 chown -R postgres:postgres /data/pgsql
 # 修改权限
-chmod -R 775 /data/pgsql
+chmod 700 /data/pgsql/pgdata
+chown -R postgres:postgres /data/pgsql/pgdata
 
 # 修改服务启动项
 vi /usr/lib/systemd/system/postgresql-16.service

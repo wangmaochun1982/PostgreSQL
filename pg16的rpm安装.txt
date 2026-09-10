@@ -44,7 +44,7 @@ EOF
 
 
 # 初始化数据
-/usr/pgsql-16/bin/postgresql-16-setup initdb 、
+/usr/pgsql-16/bin/postgresql-16-setup initdb 
 
 mkdir -p /data/pgsql/pgdata
 

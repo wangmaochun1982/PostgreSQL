@@ -1,4 +1,8 @@
 firewall-cmd --zone=public --add-port=5432/tcp --permanent
+firewall-cmd --permanent --zone=public --add-port=22/tcp
+firewall-cmd --permanent --zone=public --add-service=ssh
+
+firewall-cmd --reload
 
 systemctl reload firewalld.service
 mkdir /data/pgsql/pgdata

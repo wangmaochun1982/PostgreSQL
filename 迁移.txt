@@ -1,0 +1,314 @@
+將 Docker 容器中的 PostgreSQL 15 資料庫（imes_prod、imes_job、imes_ai）遷移至剛安裝好的實體機 PostgreSQL 16，最安全且不踩坑的方法是使用 pg_dump 導出 SQL，再導入新資料庫中。
+
+注意事項：請勿直接複製 /docker/postgres/data 目錄
+跨大版本（PG 15 到 PG 16）或跨部署環境，絕不能直接複製物理文件，否則會因為底層格式不相容導致資料損壞或無法啟動。
+
+
+1. 備份舊 Docker 中的資料庫
+在 ruoyi 主機上執行
+
+# 1.1 導出全局角色與權限設定（包含所有 DB 的 User/Password/Role）
+docker exec -t postgres pg_dumpall -U postgres --roles-only > /tmp/roles.sql
+
+# 1.2 分別導出三個資料庫的數據與結構
+docker exec -t postgres pg_dump -U postgres -d imes_prod -F c -f /tmp/imes_prod.dump
+docker exec -t postgres pg_dump -U postgres -d imes_job -F c -f /tmp/imes_job.dump
+docker exec -t postgres pg_dump -U postgres -d imes_ai -F c -f /tmp/imes_ai.dump
+
+环境和AI给的SQL不同
+
+# 1.1 導出角色與權限設定
+docker exec -t postgres pg_dumpall -U root --roles-only > /tmp/roles.sql
+
+# 1.2 使用重定向 > 將 dump 檔直接寫入宿主機 /tmp/
+docker exec postgres pg_dump -U root -d imes_prod -F c > /tmp/imes_prod.dump
+docker exec postgres pg_dump -U root -d imes_job -F c > /tmp/imes_job.dump
+docker exec postgres pg_dump -U root -d imes_ai -F c > /tmp/imes_ai.dump
+
+
+
+# 檢查檔案大小是否正常 (不應該是 0 或只有幾 KB)
+ls -lh /tmp/imes_*.dump
+
+
+驗證方式： 執行 ls -lh /tmp/*.dump，確認 3 個檔案均已生成且大小不為 0。
+
+2. 傳送備份檔至新伺服器
+從 ruoyi 傳送至 imes-pgsql
+
+scp /tmp/roles.sql /tmp/*.dump root@10.2.1.87:/tmp/
+
+3. 在新 PostgreSQL 16 上創建庫與匯入數據
+
+# 3.1 切換至 postgres 使用者
+su - postgres
+
+# 3.2 恢復用戶角色與帳號
+psql -f /tmp/roles.sql
+
+# 3.3 創建對應的三個空白資料庫
+psql -c "CREATE DATABASE imes_prod;"
+psql -c "CREATE DATABASE imes_job;"
+psql -c "CREATE DATABASE imes_ai;"
+
+# 3.4 匯入資料庫數據（使用 pg_restore 並行匯入）
+pg_restore -U postgres -d imes_prod -v /tmp/imes_prod.dump
+pg_restore -U postgres -d imes_job -v /tmp/imes_job.dump
+pg_restore -U postgres -d imes_ai -v /tmp/imes_ai.dump
+
+
+4. 驗證資料庫數據與表數量
+psql -d imes_prod -c "\dt"
+psql -d imes_job -c "\dt"
+psql -d imes_ai -c "\dt"
+
+
+
+
+第一步：在 Linux 建立表空間實體目錄（以 root 執行）
+切換至 root 帳號或使用 sudo 建立獨立的表空間目錄，並設定 postgres 權限：
+
+# 1. 建立表空間實體目錄
+mkdir -p /data/pgsql/tablespaces/ts_mes_data
+mkdir -p /data/pgsql/tablespaces/ts_mes_index
+mkdir -p /data/pgsql/tablespaces/ts_mes_history
+
+# 2. 修改權限為 postgres 專屬 (權限必須為 700)
+chown -R postgres:postgres /data/pgsql/tablespaces
+chmod -R 700 /data/pgsql/tablespaces
+
+# 3. 驗證目錄權限
+ls -ld /data/pgsql/tablespaces/*
+
+
+第二步：登入 PostgreSQL 創建表空間與 Schema（以 postgres 執行）
+切換至 postgres 使用者並登入資料庫：
+
+su - postgres
+psql
+
+在 psql 互動環境中，複製並貼上以下 SQL：
+
+
+-- 1. 創建 3 個實體表空間
+CREATE TABLESPACE ts_mes_data LOCATION '/data/pgsql/tablespaces/ts_mes_data';
+CREATE TABLESPACE ts_mes_index LOCATION '/data/pgsql/tablespaces/ts_mes_index';
+CREATE TABLESPACE ts_mes_history LOCATION '/data/pgsql/tablespaces/ts_mes_history';
+
+-- 2. 創建 3 個業務資料庫
+CREATE DATABASE imes_prod TABLESPACE ts_mes_data;
+CREATE DATABASE imes_job TABLESPACE ts_mes_data;
+CREATE DATABASE imes_ai TABLESPACE ts_mes_data;
+
+-- 3. 切換至 imes_prod 資料庫創建業務 Schema
+\c imes_prod
+
+CREATE SCHEMA mes_prod AUTHORIZATION postgres;
+CREATE SCHEMA mes_qc AUTHORIZATION postgres;
+CREATE SCHEMA mes_wms AUTHORIZATION postgres;
+CREATE SCHEMA mes_report AUTHORIZATION postgres;
+CREATE SCHEMA mes_history AUTHORIZATION postgres;
+
+\c imes_prod
+
+-- 1. 建立各模組對應的資料庫用戶（請將 'YourPasswordHere' 替換為實際強密碼）
+CREATE USER mes_prod WITH PASSWORD 'MesProd@2026';
+CREATE USER mes_qc WITH PASSWORD 'MesQc@2026';
+CREATE USER mes_wms WITH PASSWORD 'MesWms@2026';
+CREATE USER mes_report WITH PASSWORD 'MesReport@2026';
+CREATE USER mes_history WITH PASSWORD 'MesHistory@2026';
+
+方案 A：
+-- 將各 Schema 的 Owner 轉移給同名用戶
+ALTER SCHEMA mes_prod OWNER TO mes_prod;
+ALTER SCHEMA mes_qc OWNER TO mes_qc;
+ALTER SCHEMA mes_wms OWNER TO mes_wms;
+ALTER SCHEMA mes_report OWNER TO mes_report;
+ALTER SCHEMA mes_history OWNER TO mes_history;
+
+-- 授與用戶連線至 imes_prod 資料庫的權限
+GRANT CONNECT ON DATABASE imes_prod TO mes_prod, mes_qc, mes_wms, mes_report, mes_history;
+
+
+方案 B：維持 postgres 為 Owner，但授與對應用戶完整讀寫權限
+如果想維持 postgres 為 Owner，僅做權限授權，可執行以下動態 SQL：
+
+SQL
+-- 1. 授與 Schema 使用權與建立權
+GRANT ALL PRIVILEGES ON SCHEMA mes_prod TO mes_prod;
+GRANT ALL PRIVILEGES ON SCHEMA mes_qc TO mes_qc;
+GRANT ALL PRIVILEGES ON SCHEMA mes_wms TO mes_wms;
+GRANT ALL PRIVILEGES ON SCHEMA mes_report TO mes_report;
+GRANT ALL PRIVILEGES ON SCHEMA mes_history TO mes_history;
+
+-- 2. 批次授與該 Schema 下所有既有資料表與序列的權限
+GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA mes_prod TO mes_prod;
+GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA mes_prod TO mes_prod;
+
+-- 3. 設定未來新建的資料表自動授權給該用戶
+ALTER DEFAULT PRIVILEGES IN SCHEMA mes_prod GRANT ALL ON TABLES TO mes_prod;
+ALTER DEFAULT PRIVILEGES IN SCHEMA mes_prod GRANT ALL ON SEQUENCES TO mes_prod;
+
+
+第三步：設定用戶的預設搜尋路徑（search_path）
+為了讓 mes_prod 用戶登入時，執行 SELECT * FROM work_order; 不用加字首（不用寫成 mes_prod.work_order），建議設定預設的 search_path：
+
+SQL
+ALTER USER mes_prod SET search_path TO mes_prod, public;
+ALTER USER mes_qc SET search_path TO mes_qc, public;
+ALTER USER mes_wms SET search_path TO mes_wms, public;
+ALTER USER mes_report SET search_path TO mes_report, public;
+ALTER USER mes_history SET search_path TO mes_history, public;
+
+
+\c imes_prod
+
+-- 將 mes_prod 與其他業務 Schema 加入 postgres 的預設搜尋路徑
+ALTER USER postgres SET search_path TO mes_prod, mes_qc, mes_wms, mes_report, mes_history, public;
+
+
+-- 4. 退出 psql
+\q
+
+
+第三步：匯入舊 Docker 的備份資料（以 postgres 執行）
+
+# 1. 還原全局角色與用戶權限，这个主要是root
+psql -f /tmp/roles.sql      
+
+方案 A：不執行 roles.sql（推薦）
+# 直接在 postgres 用戶下還原數據，無需導入 roles.sql
+pg_restore -U postgres -d imes_prod --tablespace=ts_mes_data -v /tmp/imes_prod.dump
+pg_restore -U postgres -d imes_job --tablespace=ts_mes_data -v /tmp/imes_job.dump
+pg_restore -U postgres -d imes_ai --tablespace=ts_mes_data -v /tmp/imes_ai.dump
+
+
+方案 B：導入 root 帳號並為其設置密碼
+# 1. 導入 root 帳號
+psql -U postgres -f /tmp/roles.sql
+
+# 2. 為 root 設定密碼（例如與原 docker 一致的 super99）
+psql -U postgres -c "ALTER USER root WITH PASSWORD 'super99';"
+
+
+
+
+
+
+# 2. 使用 pg_restore 將數據匯入至新資料庫
+方案 A：直接還原（最推薦）
+因為您的 imes_prod、imes_job、imes_ai 資料庫在創建時已經指定了 TABLESPACE ts_mes_data，所以直接還原就會自動歸入該表空間：
+
+pg_restore -U postgres -d imes_prod -v /tmp/imes_prod.dump
+pg_restore -U postgres -d imes_job -v /tmp/imes_job.dump
+pg_restore -U postgres -d imes_ai -v /tmp/imes_ai.dump
+
+方案 B：使用 --tablespace-map 強制映射表空間
+如果您希望強制將原 dump 檔中的舊表空間（如 pg_default）映射到新的 ts_mes_data：
+pg_restore -U postgres -d imes_prod --tablespace-map=pg_default=ts_mes_data -v /tmp/imes_prod.dump
+pg_restore -U postgres -d imes_job --tablespace-map=pg_default=ts_mes_data -v /tmp/imes_job.dump
+pg_restore -U postgres -d imes_ai --tablespace-map=pg_default=ts_mes_data -v /tmp/imes_ai.dump
+
+
+驗證方式： 執行 psql -d imes_prod -c "\dt"，確認表結構與數據已完整還原。
+
+-- 切換至 imes_prod 資料庫
+\c imes_prod
+
+-- 1. 查看 mes_prod Schema 下的資料表總數
+SELECT count(*) FROM pg_tables WHERE schemaname = 'mes_prod';
+
+-- 2. 直接查詢 mes_prod 下的 sys_user 表數據筆數
+SELECT count(*) FROM mes_prod.sys_user;
+
+
+SELECT schemaname, count(*) 
+FROM pg_tables 
+WHERE schemaname NOT IN ('pg_catalog', 'information_schema')
+GROUP BY schemaname;
+
+
+
+將 public 下的所有表批次轉移到 mes_prod
+請直接複製並執行這段動態 SQL。它會自動抓取 public 下的所有資料表，並逐一執行 ALTER TABLE 搬移：
+
+DO $$
+DECLARE
+    r RECORD;
+BEGIN
+    FOR r IN (
+        SELECT tablename 
+        FROM pg_tables 
+        WHERE schemaname = 'public'
+    ) 
+    LOOP
+        EXECUTE format('ALTER TABLE public.%I SET SCHEMA mes_prod;', r.tablename);
+    END LOOP;
+END $$;
+
+下一步：將所有索引（Index）搬移至獨立的 ts_mes_index 表空間
+為了發揮高效能儲存架構的優勢（將資料與索引實體隔離在不同磁碟/目錄），請執行以下動態 SQL 腳本，將 mes_prod 模式下的所有索引一次性批次搬移到 ts_mes_index 表空間：
+
+DO $$
+DECLARE
+    r RECORD;
+BEGIN
+    FOR r IN (
+        SELECT indexname 
+        FROM pg_indexes 
+        WHERE schemaname = 'mes_prod'
+    ) 
+    LOOP
+        EXECUTE format('ALTER INDEX mes_prod.%I SET TABLESPACE ts_mes_index;', r.indexname);
+    END LOOP;
+END $$;
+
+
+SELECT 
+    t.spcname AS tablespace_name,
+    count(i.indexname) AS index_count
+FROM pg_indexes i
+JOIN pg_class c ON c.relname = i.indexname
+LEFT JOIN pg_tablespace t ON t.oid = c.reltablespace
+WHERE i.schemaname = 'mes_prod'
+GROUP BY t.spcname;
+
+
+
+[postgres@imes-pgsql pgsql]$ cd tablespaces/
+[postgres@imes-pgsql tablespaces]$ ll
+total 0
+drwx------ 3 postgres postgres 29 Sep 10 09:56 ts_mes_data
+drwx------ 3 postgres postgres 29 Sep 10 09:56 ts_mes_history
+drwx------ 3 postgres postgres 29 Sep 10 09:56 ts_mes_index
+[postgres@imes-pgsql tablespaces]$ du -csh *
+51M	ts_mes_data
+0	ts_mes_history
+4.0M	ts_mes_index
+55M	total
+[postgres@imes-pgsql tablespaces]$ cd ..
+[postgres@imes-pgsql pgsql]$ cd pgdata/
+[postgres@imes-pgsql pgdata]$ ll 
+base/                 log/                  pg_hba.conf           pg_multixact/         pg_serial/            pg_stat_tmp/          pg_twophase/          pg_xact/              postmaster.opts       
+current_logfiles      pg_commit_ts/         pg_ident.conf         pg_notify/            pg_snapshots/         pg_subtrans/          PG_VERSION            postgresql.auto.conf  postmaster.pid        
+global/               pg_dynshmem/          pg_logical/           pg_replslot/          pg_stat/              pg_tblspc/            pg_wal/               postgresql.conf       
+[postgres@imes-pgsql pgdata]$ ll pg_tblspc/
+total 0
+lrwxrwxrwx 1 postgres postgres 35 Sep 10 09:56 16387 -> /data/pgsql/tablespaces/ts_mes_data
+lrwxrwxrwx 1 postgres postgres 36 Sep 10 09:56 16388 -> /data/pgsql/tablespaces/ts_mes_index
+lrwxrwxrwx 1 postgres postgres 38 Sep 10 09:56 16389 -> /data/pgsql/tablespaces/ts_mes_history
+
+
+
+SELECT 
+    t.schemaname,
+    t.tablename,
+    COALESCE(t.tablespace, d.dattablespace_name) AS actual_tablespace
+FROM pg_tables t
+CROSS JOIN (
+    SELECT ts.spcname AS dattablespace_name
+    FROM pg_database db
+    JOIN pg_tablespace ts ON db.dattablespace = ts.oid
+    WHERE db.datname = current_database()
+) d
+WHERE t.schemaname = 'mes_prod';

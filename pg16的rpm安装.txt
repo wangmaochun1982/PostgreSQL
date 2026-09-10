@@ -52,7 +52,10 @@ systemctl daemon-reload
 
 配置
 # 编辑
-vi /(数据盘目录)/apps/postgresql/postgresql.conf
+#vi /(数据盘目录)/apps/postgresql/postgresql.conf
+vi /data/pgsql/pgdata/postgresql.conf
+
+
 # 修改内容
 listen_addresses='*' # 监听地址
 port=5432 # 端口

@@ -26,19 +26,6 @@ rpm -ivh postgresql16-server-16.15-1PGDG.rhel9.6.x86_64.rpm
 systemctl enable postgresql-16
 
 
-# 环境变量配置
-su - postgres
-
-cat >> ~/.bash_profile <<"EOF"
-export LANG=en_US.UTF-8
-export PS1="[\u@\h \W]\$ "
-export PGPORT=5432
-export PGDATA=/data/pgsql/pgdata
-export PGHOME=/usr/pgsql-16
-export PATH=$PGHOME/bin:$PATH:.
-export PGUSER=postgres
-export PGDATABASE=postgres
-EOF
 
  
 
@@ -82,6 +69,22 @@ host    replication     all              0.0.0.0/0       scram-sha-256
 systemctl restart postgresql-16
 # 切换用户
 su - postgres
+
+# 环境变量配置
+su - postgres
+
+cat >> ~/.bash_profile <<"EOF"
+export LANG=en_US.UTF-8
+export PS1="[\u@\h \W]\$ "
+export PGPORT=5432
+export PGDATA=/data/pgsql/pgdata
+export PGHOME=/usr/pgsql-16
+export PATH=$PGHOME/bin:$PATH:.
+export PGUSER=postgres
+export PGDATABASE=postgres
+EOF
+
+
 # 登录postgres用户
 psql -U postgres
 # 修改postgres密码

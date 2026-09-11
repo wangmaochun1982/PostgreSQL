@@ -1,0 +1,202 @@
+通过源码安装：
+进入postgresql官网下载源码包
+
+https://www.postgresql.org/ftp/source/
+重要的依赖:  readline,flex,bison
+
+
+通过YUM安装
+
+    yum search postgresql && yum install postgresql
+
+二进制安装：
+    https://ftp.postgresql.org/pub/source
+
+
+
+
+创建组:postgres
+groupadd postgres
+
+创建用户postgres并加入组postgres中
+useradd -g postgres postgres
+
+
+
+
+编译前依赖包
+gcc 、 gcc-c++、 zlib-devel 、 readline-devel
+
+perl-ExtUtils-Embed 、  pam-devel 、 libxml2-devel 、 libxslt-devel 、 openldap-devel 、 python-devel 、 openssl-devel 、 cmake
+
+#yum install gcc*
+
+#yum -y install readline-devel zlib-devel
+
+#yum -y install libicu-devel #针对pg15+
+
+#yum install -y gcc gcc-c++ make readline-devel zlib-devel openssl-devel libxml2-devel libxslt-devel libicu-devel
+
+1.文件句柄限制
+# 在 /etc/security/limits.conf 中添加
+postgres soft nofile 65536
+postgres hard nofile 65536
+
+# 在 /etc/sysctl.conf 中添加
+fs.file-max = 65536
+
+
+2.网络参数优化
+
+# 在 /etc/sysctl.conf 中添加
+net.core.somaxconn = 1024
+net.ipv4.tcp_max_syn_backlog = 4096
+net.ipv4.tcp_fin_timeout = 30
+net.ipv4.tcp_keepalive_time = 1200
+net.ipv4.tcp_keepalive_probes = 5
+net.ipv4.tcp_keepalive_intvl = 15
+net.ipv4.tcp_tw_reuse = 1
+net.ipv4.tcp_tw_recycle = 0
+net.core.netdev_max_backlog = 4096
+
+
+3.内存管理优化
+
+# 在 /etc/sysctl.conf 中添加
+vm.swappiness = 10
+vm.dirty_background_ratio = 5
+vm.dirty_ratio = 10
+vm.dirty_expire_centisecs = 3000
+vm.dirty_writeback_centisecs = 500
+
+
+4.共享内存参数
+# 在 /etc/sysctl.conf 中添加
+
+kernel.shmmax=68719476736  # GB
+#最大共享内存段大小
+#可以使用的共享内存的总量
+kernel.shmall=4294967296  # GB / 4KB
+#整个系统共享内存段的最大数目
+kernel.shmmni: 4096
+kernel.sem = 50100 64128000 50100 1280 #每个信号对象集的最大信号对象数
+fs.file-max=7672460
+#文件句柄的最大数量。
+net.ipv4.ip_local_port_range=9000 65000 #应用程序可使用的IPv4端口范围
+net.core.rmem_default=1048576 #套接字接收缓冲区大小的缺省值
+net.core.wmem_default=262144 #套接字发送缓冲区大小的缺省值
+net.core.wmem_max=1048576 #套接字发送缓冲区大小的最大值
+
+
+
+
+5.推荐文件系统
+EXT4：最常用的 Linux 文件系统，稳定可靠，性能良好
+XFS：适合大文件和高并发场景，具有更好的扩展性
+Btrfs：新一代文件系统，支持快照、压缩等高级功能
+文件系统挂载选项
+在挂载 PostgreSQL 数据目录所在的分区时，使用以下优化选项：
+
+
+# 在 /etc/fstab 中添加或修改
+/dev/sdb1 /var/lib/pgsql xfs defaults,noatime,nodiratime,nodev,nosuid 0 2
+
+
+
+
+
+--使用postgres用户安装
+
+$  cd /soft
+$  tar -xf postgresql-16.1.tar.gz
+$  cd /soft/postgresql/
+$  ./configure --prefix=/usr/local/pgsql
+或 
+$  ./configure --prefix=/usr/local/pgsql --with-openssl --with-libxml --with-libxslt --with-icu
+$  make
+$  make install 
+
+
+ 安装后配置
+1. 创建数据目录
+
+mkdir -p /usr/local/pgsql/data
+2. 创建 PostgreSQL 用户
+
+useradd -m postgres
+chown -R postgres:postgres /usr/local/pgsql
+
+3. 初始化数据库集群
+
+su - postgres
+
+/usr/local/pgsql/bin/initdb -D /usr/local/pgsql/data
+
+4. 配置环境变量
+编辑 ~/.bash_profile 或 ~/.profile 文件，添加 PostgreSQL 环境变量：
+
+export PGPORT=5432  # 或换1922之类
+export PG_HOME=/usr/local/pgsql
+export PATH=/usr/local/pgsql/bin:$PATH
+export PGDATA=/usr/local/pgsql/data
+export LD_LIBRARY_PATH=/usr/local/pgsql/lib:$LD_LIBRARY_PATH
+export LANG=en_US.utf8
+ 
+
+使环境变量生效：
+
+
+source ~/.bashrc
+5. 配置监听地址和端口
+编辑 postgresql.conf 文件：
+
+
+vi /usr/local/pgsql/data/postgresql.conf
+修改以下参数：
+
+
+listen_addresses = '*'  # 允许所有 IP 地址访问
+port = 5432  # PostgreSQL 服务端口
+6. 配置访问控制
+编辑 pg_hba.conf 文件，添加允许访问的主机：
+
+
+vi /usr/local/pgsql/data/pg_hba.conf
+添加以下内容：
+
+
+host    all             all             0.0.0.0/0               md5
+host    all             all             ::/0                    md5
+
+
+
+启动和停止服务
+1. 启动服务
+
+su - postgres
+/usr/local/pgsql/bin/pg_ctl -D /usr/local/pgsql/data -l logfile start
+
+2. 停止服务
+
+/usr/local/pgsql/bin/pg_ctl -D /usr/local/pgsql/data stop
+
+3. 重启服务
+
+/usr/local/pgsql/bin/pg_ctl -D /usr/local/pgsql/data restart
+
+安装验证
+1. 检查 PostgreSQL 版本
+
+psql --version
+
+2. 连接到数据库
+
+psql -h localhost -U postgres
+
+3. 创建测试数据库
+
+CREATE DATABASE testdb;
+\c testdb
+CREATE TABLE test_table (id serial primary key, name varchar(50));
+INSERT INTO test_table (name) VALUES ('Test');
+SELECT * FROM test_table;

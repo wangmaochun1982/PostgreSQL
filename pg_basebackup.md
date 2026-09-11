@@ -38,6 +38,8 @@ SELECT pg_reload_conf();
 # 执行全量备份
 pg_basebackup -h localhost -U replication_user -D /backup/postgresql/full -F p -X stream -R -P
 
+pg_basebackup -h localhost -p 5432 -U root -D /backup/postgresql/full/ -F tar -X stream -R -P
+
 # 参数说明：
 # -h：主库主机地址
 # -U：复制用户名

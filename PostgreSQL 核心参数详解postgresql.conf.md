@@ -22,8 +22,10 @@ WAL配置：控制预写式日志的生成和管理
 ```
 
 # 内存配置参数
+
 内存配置是PostgreSQL性能优化的核心，合理配置内存参数可以显著提高数据库性能。
 
+```text
 1. shared_buffers
 
 描述：PostgreSQL用于缓存数据块的内存大小 默认值：128MB 推荐值：系统内存的25% 配置示例：
@@ -55,9 +57,12 @@ effective_cache_size = 6GB  # 对于8GB内存的服务器
 
 wal_buffers = 16MB
 
+```
+
 
 # WAL配置参数
 
+```text
 WAL配置影响数据库的可靠性和写入性能。
 
 1. wal_level
@@ -98,8 +103,11 @@ checkpoint_completion_target = 0.9
 
 wal_compression = on
 
+```
 
 # 连接配置参数
+
+```text
 连接配置控制数据库的连接数量和属性。
 
 1. max_connections
@@ -134,7 +142,12 @@ superuser_reserved_connections = 5
 
 tcp_keepalives_idle = 60s
 
+```
+
+
 # 日志配置参数
+
+```text
 日志配置控制数据库日志的生成和格式。
 
 1. log_min_duration_statement
@@ -185,6 +198,7 @@ log_rotation_age = 1d
 
 log_checkpoints = on
 
+```
 
 1. 基础配置示例
    

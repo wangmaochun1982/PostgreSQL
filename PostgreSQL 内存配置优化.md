@@ -1,5 +1,5 @@
 主要内存参数优化
-1. shared_buffers
+* 1. shared_buffers
 参数说明：PostgreSQL 用于缓存数据块的共享内存大小
 
 推荐配置：

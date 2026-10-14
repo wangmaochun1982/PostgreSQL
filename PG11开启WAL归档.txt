@@ -1,0 +1,21 @@
+-创建归档目录
+
+ 
+mkdir -p $PGDATA/archive_wals
+chown -R postgres.postgres $PGDATA/archive_wals
+
+
+-修改参数(在配置文件中配置)
+
+wal_level='replica';
+archive_mode='on'
+archive_command ='cp %p /pgdata/11/archive_wals/%f';
+
+
+如果只是设置修改archive_command，可以使用reload使其生效，而不用重启数据库
+
+
+-重启数据库
+
+ 
+systemctl restart postgresql-11

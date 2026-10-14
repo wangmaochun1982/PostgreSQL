@@ -123,3 +123,75 @@ mount -o remount,noatime,nodiratime /pg_wal
 ```
 
 
+3. WAL归档优化
+```sql
+-- 查看归档配置
+SHOW archive_mode;
+SHOW archive_command;
+
+-- 优化归档命令
+-- 使用rsync进行归档，添加--no-whole-file选项
+ALTER SYSTEM SET archive_mode = on;
+ALTER SYSTEM SET archive_command = 'rsync -a --no-whole-file %p /path/to/archive/%f';
+
+-- 或使用异步归档工具
+-- ALTER SYSTEM SET archive_command = 'pg_receivewal %p /path/to/archive/%f';
+
+-- 重启数据库使archive_mode生效
+-- pg_ctl restart -D /path/to/data
+```
+
+WAL监控和管理
+1. WAL使用情况监控
+```sql
+-- 查看WAL使用情况
+SELECT 
+    pg_walfile_name(pg_current_wal_lsn()) AS current_wal_file,
+    pg_size_pretty(pg_wal_lsn_diff(pg_current_wal_lsn(), '0/00000000')) AS total_wal_size,
+    pg_wal_lsn_diff(pg_current_wal_lsn(), pg_last_wal_replay_lsn()) AS replay_lag_bytes
+FROM pg_stat_replication;
+
+-- 查看检查点情况
+SELECT 
+    checkpoint_timeout,
+    checkpoint_completion_target,
+    max_wal_size,
+    min_wal_size
+FROM pg_settings
+WHERE name IN ('checkpoint_timeout', 'checkpoint_completion_target', 'max_wal_size', 'min_wal_size');
+
+-- 查看WAL写入统计
+SELECT 
+    wal_buffers,
+    wal_writer_delay,
+    wal_writer_flushes,
+    wal_buffers_full,
+    wal_write_backend_starts
+FROM pg_stat_bgwriter;
+```
+
+2. WAL文件管理
+```sql
+# 查看WAL目录大小
+du -sh /path/to/data/pg_wal
+
+# 手动触发检查点
+psql -c "CHECKPOINT;"
+
+# 清理无效WAL文件（正常情况下由PostgreSQL自动管理）
+# 只有在归档失败或复制延迟时才需要手动清理
+pg_controldata /path/to/data | grep "Latest checkpoint location"
+```
+
+3. WAL归档监控
+```sql
+-- 查看归档状态
+SELECT 
+    archived_count,
+    failed_count,
+    last_archived_wal,
+    last_archived_time,
+    last_failed_wal,
+    last_failed_time
+FROM pg_stat_archiver;
+```

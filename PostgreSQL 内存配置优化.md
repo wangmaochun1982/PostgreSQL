@@ -23,7 +23,7 @@ ALTER SYSTEM SET shared_buffers = '8GB';
 
 
 
-2. work_mem
+# 2. work_mem
 参数说明：每个查询操作（如排序、哈希）可使用的内存大小
 
 推荐配置：
@@ -43,7 +43,7 @@ ALTER SYSTEM SET work_mem = '16MB';
 过大会导致内存不足，尤其是在高并发场景
 可根据查询类型单独调整（使用 ALTER USER 或 ALTER DATABASE）
 
-3. maintenance_work_mem
+# 3. maintenance_work_mem
 参数说明：维护操作（VACUUM、CREATE INDEX 等）可使用的内存大小
 
 推荐配置：
@@ -63,7 +63,7 @@ ALTER SYSTEM SET maintenance_work_mem = '512MB';
 过大会占用过多系统内存
 可根据维护操作频率调整
 
-4. effective_cache_size
+ # 4. effective_cache_size
 参数说明：告知优化器可用的系统缓存大小（不实际分配内存）
 
 推荐配置：
@@ -83,7 +83,7 @@ ALTER SYSTEM SET effective_cache_size = '16GB';
 应反映实际可用的系统缓存大小
 
 
-5. wal_buffers
+# 5. wal_buffers
 参数说明：WAL 缓冲区大小
 推荐配置：
 默认值（-1）自动调整为 shared_buffers 的 1/32，最小 64KB
@@ -97,7 +97,7 @@ ALTER SYSTEM SET wal_buffers = '16MB';
 
 
 内存相关的其他参数
-1. max_connections
+# 1. max_connections
 参数说明：最大并发连接数
 
 推荐配置：
@@ -118,7 +118,7 @@ ALTER SYSTEM SET max_connections = '500';
 与 work_mem 等参数配合调整
 
 
-2. temp_buffers
+# 2. temp_buffers
 参数说明：每个连接用于临时表的内存大小
 推荐配置：
 默认 8MB，通常足够
@@ -129,7 +129,7 @@ ALTER SYSTEM SET temp_buffers = '16MB';
 ```
 
 
-3. shared_memory_type
+ #  3. shared_memory_type
 参数说明：共享内存类型
 推荐配置：
 Linux：mmap 或 sysv
@@ -141,7 +141,7 @@ ALTER SYSTEM SET shared_memory_type = 'mmap';
 
 ```
 
-4. huge_pages
+# 4. huge_pages
 参数说明：是否使用大页内存
 
 推荐配置：
@@ -338,3 +338,91 @@ echo -1000 > /proc/$(pgrep postgres -f "-D")/oom_score_adj
 考虑使用内存分配器如 jemalloc
 
 
+
+## 内存配置案例分析
+
+案例 1：OLTP 系统内存配置
+环境：
+
+服务器配置：32GB RAM，8 CPU 核心
+工作负载：高并发 OLTP 应用
+预期连接数：500
+配置建议：
+
+```sql
+-- 共享缓冲区设置为系统内存的 25%
+ALTER SYSTEM SET shared_buffers = '8GB';
+
+-- 工作内存计算公式：(32GB * 0.25) / 500 = 16MB
+ALTER SYSTEM SET work_mem = '16MB';
+
+-- 维护工作内存设置为系统内存的 10%
+ALTER SYSTEM SET maintenance_work_mem = '3GB';
+
+-- 有效缓存大小设置为系统内存的 50%
+ALTER SYSTEM SET effective_cache_size = '16GB';
+
+-- 最大连接数
+ALTER SYSTEM SET max_connections = '500';
+
+-- 启用大页内存
+ALTER SYSTEM SET huge_pages = 'try';
+```
+
+案例 2：OLAP 系统内存配置
+环境：
+
+服务器配置：128GB RAM，16 CPU 核心
+工作负载：数据分析和报表生成
+预期连接数：100
+配置建议：
+```sql
+-- 共享缓冲区设置为系统内存的 30%
+ALTER SYSTEM SET shared_buffers = '38GB';
+
+-- 工作内存计算公式：(128GB * 0.25) / 100 = 32MB，适当增大用于复杂查询
+ALTER SYSTEM SET work_mem = '64MB';
+
+-- 维护工作内存设置为系统内存的 10%
+ALTER SYSTEM SET maintenance_work_mem = '12GB';
+
+-- 有效缓存大小设置为系统内存的 75%
+ALTER SYSTEM SET effective_cache_size = '96GB';
+
+-- 最大连接数
+ALTER SYSTEM SET max_connections = '100';
+
+-- 启用大页内存
+ALTER SYSTEM SET huge_pages = 'on';
+```
+
+案例 3：混合负载系统内存配置
+环境：
+
+服务器配置：64GB RAM，12 CPU 核心
+工作负载：同时包含 OLTP 和 OLAP 操作
+预期连接数：300
+配置建议：
+
+```sql
+-- 共享缓冲区设置为系统内存的 25%
+ALTER SYSTEM SET shared_buffers = '16GB';
+
+-- 工作内存计算公式：(64GB * 0.25) / 300 = 54MB，折中设置
+ALTER SYSTEM SET work_mem = '32MB';
+
+-- 维护工作内存设置为系统内存的 8%
+ALTER SYSTEM SET maintenance_work_mem = '5GB';
+
+-- 有效缓存大小设置为系统内存的 60%
+ALTER SYSTEM SET effective_cache_size = '38GB';
+
+-- 最大连接数
+ALTER SYSTEM SET max_connections = '300';
+
+-- 启用大页内存
+ALTER SYSTEM SET huge_pages = 'try';
+
+-- 为分析用户单独设置较大的工作内存
+ALTER USER analytics_user SET work_mem = '128MB';
+```
